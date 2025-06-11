@@ -1,10 +1,12 @@
-# 1️⃣ Install dependencies
+# ✅ Install dependencies (already installed if you've followed our steps)
 # pip install unstructured
-# pip install langchain
-# pip install langchain-community
+# pip install langchain-core langchain-community langchain-text-splitters langchain-openai
 # pip install sentence-transformers
 # pip install nltk
 # pip install tiktoken
+# pip install pdfminer.six==20221105
+# pip install pillow
+# (Make sure Poppler is installed & in PATH)
 
 import os
 import re
@@ -13,17 +15,17 @@ import tiktoken
 from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownHeaderTextSplitter
 from sentence_transformers import SentenceTransformer
-from langchain_text_splitters import SemanticChunker
 
+# ✅ Download nltk tokenizer once
 nltk.download('punkt')
 
-# 2️⃣ Load PDF
+# ✅ Load PDF using Unstructured
 pdf_path = "KomorowskiEDA2016.pdf"
 loader = UnstructuredPDFLoader(pdf_path)
 docs = loader.load()
 document_text = " ".join([doc.page_content for doc in docs])
 
-# 3️⃣ Clean text
+# ✅ Clean text function
 def clean_text(raw_text):
     cleaned = re.sub(r'http\S+', '', raw_text)
     cleaned = re.sub(r'\s+', ' ', cleaned)
@@ -32,7 +34,7 @@ def clean_text(raw_text):
 
 cleaned_text = clean_text(document_text)
 
-# 4️⃣ Optional Header Split (if you have structured docs)
+# ✅ Header-based splitting (structure-aware)
 headers_to_split_on = [
     ("#", "Chapter"),
     ("##", "Section"),
@@ -42,31 +44,31 @@ headers_to_split_on = [
 header_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
 header_chunks = header_splitter.split_text(cleaned_text)
 
-# 5️⃣ Token-aware splitting
+# ✅ Extract actual text content from documents returned by splitter
+header_texts = [doc.page_content for doc in header_chunks]
+
+# ✅ Token counter helper
 def token_count(text, model_name="cl100k_base"):
     encoding = tiktoken.get_encoding(model_name)
     return len(encoding.encode(text))
 
+# ✅ RecursiveCharacterTextSplitter after header split
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=1000,
     chunk_overlap=100
 )
-base_chunks = text_splitter.split_text(cleaned_text)
 
-# 6️⃣ Use open-source embeddings model
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # FREE & excellent
+base_chunks = []
+for text in header_texts:
+    base_chunks.extend(text_splitter.split_text(text))
 
-# 7️⃣ Semantic Chunker (we write our own lightweight version)
-def semantic_split(chunks, embeddings_model, threshold=0.80):
-    sem_chunks = []
-    for chunk in chunks:
-        if token_count(chunk) > 100:  # avoid very small ones
-            sem_chunks.append(chunk)
-    return sem_chunks
+# ✅ Use FREE sentence-transformers for embeddings
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-semantic_chunks = semantic_split(base_chunks, embedding_model)
+# ✅ Lightweight semantic filter (skip very small chunks)
+semantic_chunks = [chunk for chunk in base_chunks if token_count(chunk) > 100]
 
-# 8️⃣ Metadata injection
+# ✅ Metadata injection
 final_chunks = []
 for i, chunk in enumerate(semantic_chunks):
     metadata = {
@@ -79,8 +81,8 @@ for i, chunk in enumerate(semantic_chunks):
         "metadata": metadata
     })
 
-# 9️⃣ ✅ Ready for vector DB ingestion
-for fc in final_chunks[:3]:  # print sample chunks
+# ✅ Preview first few chunks
+for fc in final_chunks[:3]:
     print("Chunk:\n", fc["text"])
     print("Metadata:\n", fc["metadata"])
-    print("-"*50)
+    print("-" * 50)
